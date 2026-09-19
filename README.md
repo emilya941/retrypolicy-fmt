@@ -92,9 +92,19 @@ except SourceError as exc:
     print(exc)  # already formatted with line/column and a source snippet
 ```
 
+## Testing
+
+```
+$ python -m unittest discover
+```
+
+covers the lexer (token boundaries, line/column tracking, comment
+handling), the parser (value kinds, nested lists/calls, and where each
+malformed-input error points), and end-to-end formatting.
+
 ## Status
 
 Early skeleton. The lexer, parser, and canonical renderer work for the
-grammar described above. Not yet handled: comments preservation, field
-ordering/validation (e.g. catching unknown backoff strategies or
-attempts <= 0), and a proper test suite.
+grammar described above. Not yet handled: comments preservation and
+field ordering/validation (e.g. catching unknown backoff strategies or
+attempts <= 0).
