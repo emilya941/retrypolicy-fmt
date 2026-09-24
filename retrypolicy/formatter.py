@@ -117,6 +117,11 @@ def tokenize(source: str, filename: str) -> list:
 class Scalar:
     kind: str  # "number", "string", "ident"
     text: str
+    # position is informational only (used by validation error messages),
+    # so it's excluded from equality to keep the existing positive tests
+    # working without threading line/column through every fixture.
+    line: int = field(default=0, compare=False)
+    column: int = field(default=0, compare=False)
 
 
 @dataclass
@@ -128,12 +133,16 @@ class ListValue:
 class Call:
     name: str
     args: list  # list[tuple[str, Scalar]]
+    line: int = field(default=0, compare=False)
+    column: int = field(default=0, compare=False)
 
 
 @dataclass
 class FieldNode:
     key: str
     value: object
+    line: int = 0
+    column: int = 0
 
 
 @dataclass
@@ -195,7 +204,7 @@ class Parser:
         key_tok = self.expect("IDENT", "expected a field name")
         self.expect("EQUALS", f"expected '=' after key {key_tok.value!r}")
         value = self.parse_value()
-        return FieldNode(key=key_tok.value, value=value)
+        return FieldNode(key=key_tok.value, value=value, line=key_tok.line, column=key_tok.column)
 
     def parse_value(self):
         tok = self.peek()
@@ -213,7 +222,7 @@ class Parser:
     def parse_scalar(self) -> Scalar:
         tok = self.advance()
         kind = {"NUMBER": "number", "STRING": "string", "IDENT": "ident"}[tok.type]
-        return Scalar(kind=kind, text=tok.value)
+        return Scalar(kind=kind, text=tok.value, line=tok.line, column=tok.column)
 
     def parse_list(self) -> ListValue:
         self.advance()  # LBRACKET
@@ -236,7 +245,7 @@ class Parser:
                 self.advance()
                 args.append(self.parse_arg())
         self.expect("RPAREN", f"expected ')' to close {name_tok.value!r}")
-        return Call(name=name_tok.value, args=args)
+        return Call(name=name_tok.value, args=args, line=name_tok.line, column=name_tok.column)
 
     def parse_arg(self):
         key_tok = self.expect("IDENT", "expected an argument name")
@@ -279,4 +288,8 @@ def format_source(source: str, filename: str = "<input>") -> str:
     if not policies:
         first = parser.tokens[0]
         raise SourceError(source, filename, first.line, first.column, "file contains no policy blocks")
+
+    from .validate import validate_policies  # deferred: validate imports these node types
+
+    validate_policies(policies, source, filename)
     return render(policies)

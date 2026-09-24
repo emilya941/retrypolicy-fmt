@@ -92,6 +92,30 @@ except SourceError as exc:
     print(exc)  # already formatted with line/column and a source snippet
 ```
 
+## Semantic validation
+
+Parsing only checks grammar. A few fields are also checked for sense,
+with errors pointing at the offending value the same way parse errors
+do:
+
+- `max_attempts` must be a positive integer.
+- `backoff` must be a call to one of `constant`, `linear`, `exponential`.
+- `jitter` must be one of `none`, `equal`, `full`.
+
+```
+policy checkout-service {
+  backoff = fibonacci(base=1)
+}
+```
+
+```
+error: unknown backoff kind 'fibonacci' (expected one of: constant, linear, exponential)
+  --> policy.rp:2:13
+  |
+2 |   backoff = fibonacci(base=1)
+  |             ^
+```
+
 ## Testing
 
 ```
@@ -100,11 +124,12 @@ $ python -m unittest discover
 
 covers the lexer (token boundaries, line/column tracking, comment
 handling), the parser (value kinds, nested lists/calls, and where each
-malformed-input error points), and end-to-end formatting.
+malformed-input error points), semantic validation, and end-to-end
+formatting.
 
 ## Status
 
-Early skeleton. The lexer, parser, and canonical renderer work for the
-grammar described above. Not yet handled: comments preservation and
-field ordering/validation (e.g. catching unknown backoff strategies or
-attempts <= 0).
+Early skeleton. The lexer, parser, canonical renderer, and field
+validation work for the grammar described above. Not yet handled:
+comment preservation through formatting, a `--check` mode, and
+multi-file/glob support on the CLI.
