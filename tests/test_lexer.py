@@ -36,11 +36,22 @@ class TokenizeTests(unittest.TestCase):
         self.assertEqual(tokens[0].value, "timeout")
         self.assertEqual((tokens[0].line, tokens[0].column), (1, 1))
 
-    def test_comment_is_skipped_and_line_tracking_continues(self):
+    def test_comment_becomes_a_token_and_line_tracking_continues(self):
         tokens = tokenize("# a comment\npolicy\n", "<input>")
-        self.assertEqual(tokens[0].type, "KEYWORD")
-        self.assertEqual(tokens[0].value, "policy")
-        self.assertEqual((tokens[0].line, tokens[0].column), (2, 1))
+        self.assertEqual(tokens[0].type, "COMMENT")
+        self.assertEqual(tokens[0].value, "a comment")
+        self.assertEqual((tokens[0].line, tokens[0].column), (1, 1))
+        self.assertEqual(tokens[1].type, "KEYWORD")
+        self.assertEqual((tokens[1].line, tokens[1].column), (2, 1))
+
+    def test_comment_text_is_stripped_of_surrounding_whitespace(self):
+        tokens = tokenize("#   spaced out   \n", "<input>")
+        self.assertEqual(tokens[0].value, "spaced out")
+
+    def test_empty_comment(self):
+        tokens = tokenize("#\npolicy\n", "<input>")
+        self.assertEqual(tokens[0].type, "COMMENT")
+        self.assertEqual(tokens[0].value, "")
 
     def test_identifier_allows_hyphen(self):
         tokens = tokenize("checkout-service", "<input>")

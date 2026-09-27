@@ -61,6 +61,26 @@ policy checkout-service {
 }
 ```
 
+## Comments
+
+`#` starts a comment that runs to the end of the line. A comment on its
+own line above a `policy` block or a field is kept above that block or
+field. A comment at the end of a field's line is kept on that line.
+Comments right before a block's closing `}`, and any comment left after
+the last policy in the file, are kept too.
+
+```
+# checkout retries
+policy checkout-service {
+  # tuned after the 2026-08 incident
+  max_attempts = 5
+  jitter = full  # avoid thundering herd
+}
+```
+
+reformats unchanged. A comment in the middle of a value, such as inside
+a `[...]` list or a call's argument list, is not preserved.
+
 ## Error messages
 
 A missing `=`:
@@ -123,13 +143,14 @@ $ python -m unittest discover
 ```
 
 covers the lexer (token boundaries, line/column tracking, comment
-handling), the parser (value kinds, nested lists/calls, and where each
-malformed-input error points), semantic validation, and end-to-end
-formatting.
+handling), the parser (value kinds, nested lists/calls, comment
+attachment, and where each malformed-input error points), semantic
+validation, and end-to-end formatting.
 
 ## Status
 
-Early skeleton. The lexer, parser, canonical renderer, and field
-validation work for the grammar described above. Not yet handled:
-comment preservation through formatting, a `--check` mode, and
-multi-file/glob support on the CLI.
+Early skeleton. The lexer, parser, canonical renderer, field
+validation, and comment preservation work for the grammar described
+above. Not yet handled: a `--check` mode, multi-file/glob support on
+the CLI, and precisely defined units and ranges (ms/s bounds, jitter
+kinds beyond the name check).

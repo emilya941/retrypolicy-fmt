@@ -46,5 +46,42 @@ class FormatSourceTests(unittest.TestCase):
         self.assertEqual(ctx.exception.message, "file contains no policy blocks")
 
 
+class CommentPreservationTests(unittest.TestCase):
+    def test_preserves_leading_and_trailing_comments(self):
+        messy = (
+            "# checkout retries\n"
+            "policy checkout-service {\n"
+            "  # tuned after the 2026-08 incident\n"
+            "  max_attempts = 5\n"
+            "  jitter = full  # avoid thundering herd\n"
+            "  # not wired up yet\n"
+            "}\n"
+        )
+        expected = (
+            "# checkout retries\n"
+            "policy checkout-service {\n"
+            "  # tuned after the 2026-08 incident\n"
+            "  max_attempts = 5\n"
+            "  jitter = full  # avoid thundering herd\n"
+            "  # not wired up yet\n"
+            "}\n"
+        )
+        self.assertEqual(format_source(messy), expected)
+
+    def test_preserves_comment_after_last_policy(self):
+        source = "policy a {\n  x = 1\n}\n# left here for reference\n"
+        self.assertEqual(format_source(source), source)
+
+    def test_formatting_is_idempotent_with_comments(self):
+        source = (
+            "policy a {\n"
+            "  # note\n"
+            "  x = 1  # inline\n"
+            "}\n"
+        )
+        once = format_source(source)
+        self.assertEqual(format_source(once), once)
+
+
 if __name__ == "__main__":
     unittest.main()

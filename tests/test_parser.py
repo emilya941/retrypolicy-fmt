@@ -60,6 +60,46 @@ class ParserPositiveTests(unittest.TestCase):
         self.assertEqual(policies[1].fields[0].key, "y")
 
 
+class ParserCommentTests(unittest.TestCase):
+    def test_leading_comment_above_policy(self):
+        source = "# about svc\npolicy svc {\n  x = 1\n}\n"
+        policies = parse(source)
+        self.assertEqual(policies[0].leading_comments, ["about svc"])
+
+    def test_leading_comment_above_field(self):
+        source = "policy svc {\n  # why 1\n  x = 1\n}\n"
+        policies = parse(source)
+        self.assertEqual(policies[0].fields[0].leading_comments, ["why 1"])
+
+    def test_multiple_leading_comment_lines_are_kept_in_order(self):
+        source = "policy svc {\n  # first\n  # second\n  x = 1\n}\n"
+        field = parse(source)[0].fields[0]
+        self.assertEqual(field.leading_comments, ["first", "second"])
+
+    def test_trailing_comment_on_field_line(self):
+        source = "policy svc {\n  x = 1  # note\n}\n"
+        field = parse(source)[0].fields[0]
+        self.assertEqual(field.trailing_comment, "note")
+        self.assertEqual(field.leading_comments, [])
+
+    def test_comment_on_its_own_line_is_not_treated_as_trailing(self):
+        source = "policy svc {\n  x = 1\n  # not attached to x\n  y = 2\n}\n"
+        fields = parse(source)[0].fields
+        self.assertIsNone(fields[0].trailing_comment)
+        self.assertEqual(fields[1].leading_comments, ["not attached to x"])
+
+    def test_dangling_comment_before_closing_brace(self):
+        source = "policy svc {\n  x = 1\n  # trailing note\n}\n"
+        policy = parse(source)[0]
+        self.assertEqual(policy.trailing_comments, ["trailing note"])
+
+    def test_comment_after_last_policy_is_kept_as_file_trailing(self):
+        source = "policy svc {\n  x = 1\n}\n# end of file\n"
+        parser = Parser(source, "<input>")
+        parser.parse_file()
+        self.assertEqual(parser.trailing_comments, ["end of file"])
+
+
 class ParserErrorPositionTests(unittest.TestCase):
     def test_missing_equals_after_key(self):
         source = "policy p {\n  a 5\n}\n"

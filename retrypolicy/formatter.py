@@ -64,12 +64,15 @@ def tokenize(source: str, filename: str) -> list:
             advance()
             continue
 
+        start_line, start_col = line, col
+
         if ch == "#":
+            advance()
+            text_start = i
             while i < n and source[i] != "\n":
                 advance()
+            tokens.append(Token("COMMENT", source[text_start:i].strip(), start_line, start_col))
             continue
-
-        start_line, start_col = line, col
 
         if ch in _SYMBOLS:
             tokens.append(Token(_SYMBOLS[ch], ch, start_line, start_col))
@@ -143,12 +146,19 @@ class FieldNode:
     value: object
     line: int = 0
     column: int = 0
+    # own-line comments immediately above the field, and one same-line
+    # trailing comment after the value, e.g. "x = 1  # why"
+    leading_comments: list = field(default_factory=list)
+    trailing_comment: object = None
 
 
 @dataclass
 class PolicyNode:
     name: str
     fields: list = field(default_factory=list)
+    leading_comments: list = field(default_factory=list)
+    # comments after the last field but before the closing '}'
+    trailing_comments: list = field(default_factory=list)
 
 
 class Parser:
@@ -157,11 +167,19 @@ class Parser:
         self.filename = filename
         self.tokens = tokenize(source, filename)
         self.pos = 0
+        # comments that trail the last policy block, with nothing after them
+        self.trailing_comments = []
+
+    def _skip_comments(self):
+        while self.tokens[self.pos].type == "COMMENT":
+            self.pos += 1
 
     def peek(self):
+        self._skip_comments()
         return self.tokens[self.pos]
 
     def advance(self):
+        self._skip_comments()
         tok = self.tokens[self.pos]
         if tok.type != "EOF":
             self.pos += 1
@@ -173,13 +191,34 @@ class Parser:
             raise SourceError(self.source, self.filename, tok.line, tok.column, hint)
         return self.advance()
 
+    def _take_comments(self) -> list:
+        # must run before peek()/advance() touch this position, or they will
+        # have already skipped past the comments without recording them
+        comments = []
+        while self.tokens[self.pos].type == "COMMENT":
+            comments.append(self.tokens[self.pos].value)
+            self.pos += 1
+        return comments
+
+    def _take_trailing_comment(self):
+        same_line = self.tokens[self.pos - 1].line
+        tok = self.tokens[self.pos]
+        if tok.type == "COMMENT" and tok.line == same_line:
+            self.pos += 1
+            return tok.value
+        return None
+
     def parse_file(self) -> list:
         policies = []
-        while self.peek().type != "EOF":
-            policies.append(self.parse_policy())
+        while True:
+            leading = self._take_comments()
+            if self.peek().type == "EOF":
+                self.trailing_comments = leading
+                break
+            policies.append(self.parse_policy(leading))
         return policies
 
-    def parse_policy(self) -> PolicyNode:
+    def parse_policy(self, leading_comments: list) -> PolicyNode:
         tok = self.peek()
         if tok.type != "KEYWORD" or tok.value != "policy":
             raise SourceError(
@@ -189,22 +228,30 @@ class Parser:
         self.advance()
         name_tok = self.expect("IDENT", "expected a policy name after 'policy'")
         self.expect("LBRACE", f"expected '{{' after policy name {name_tok.value!r}")
-        policy = PolicyNode(name=name_tok.value)
-        while self.peek().type != "RBRACE":
+        policy = PolicyNode(name=name_tok.value, leading_comments=leading_comments)
+        while True:
+            field_leading = self._take_comments()
+            if self.peek().type == "RBRACE":
+                policy.trailing_comments = field_leading
+                break
             if self.peek().type == "EOF":
                 raise SourceError(
                     self.source, self.filename, name_tok.line, name_tok.column,
                     f"policy {name_tok.value!r} is missing a closing '}}'",
                 )
-            policy.fields.append(self.parse_field())
+            policy.fields.append(self.parse_field(field_leading))
         self.advance()  # RBRACE
         return policy
 
-    def parse_field(self) -> FieldNode:
+    def parse_field(self, leading_comments: list) -> FieldNode:
         key_tok = self.expect("IDENT", "expected a field name")
         self.expect("EQUALS", f"expected '=' after key {key_tok.value!r}")
         value = self.parse_value()
-        return FieldNode(key=key_tok.value, value=value, line=key_tok.line, column=key_tok.column)
+        trailing_comment = self._take_trailing_comment()
+        return FieldNode(
+            key=key_tok.value, value=value, line=key_tok.line, column=key_tok.column,
+            leading_comments=leading_comments, trailing_comment=trailing_comment,
+        )
 
     def parse_value(self):
         tok = self.peek()
@@ -271,15 +318,28 @@ def _render_value(value) -> str:
     return _render_scalar(value)
 
 
-def render(policies: list) -> str:
+def _render_comment_lines(comments: list, indent: str) -> list:
+    return [f"{indent}# {c}" if c else f"{indent}#" for c in comments]
+
+
+def render(policies: list, trailing_comments: list = ()) -> str:
     blocks = []
     for policy in policies:
-        lines = [f"policy {policy.name} {{"]
+        lines = _render_comment_lines(policy.leading_comments, "")
+        lines.append(f"policy {policy.name} {{")
         for f_ in policy.fields:
-            lines.append(f"  {f_.key} = {_render_value(f_.value)}")
+            lines.extend(_render_comment_lines(f_.leading_comments, "  "))
+            field_line = f"  {f_.key} = {_render_value(f_.value)}"
+            if f_.trailing_comment is not None:
+                field_line += f"  # {f_.trailing_comment}" if f_.trailing_comment else "  #"
+            lines.append(field_line)
+        lines.extend(_render_comment_lines(policy.trailing_comments, "  "))
         lines.append("}")
         blocks.append("\n".join(lines))
-    return "\n\n".join(blocks) + "\n"
+    out = "\n\n".join(blocks) + "\n"
+    if trailing_comments:
+        out += "\n".join(_render_comment_lines(trailing_comments, "")) + "\n"
+    return out
 
 
 def format_source(source: str, filename: str = "<input>") -> str:
@@ -292,4 +352,4 @@ def format_source(source: str, filename: str = "<input>") -> str:
     from .validate import validate_policies  # deferred: validate imports these node types
 
     validate_policies(policies, source, filename)
-    return render(policies)
+    return render(policies, parser.trailing_comments)
